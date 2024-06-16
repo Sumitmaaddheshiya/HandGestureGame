@@ -1,0 +1,158 @@
+import cv2
+import mediapipe as mp
+import pygame
+import random
+
+# Initialize pygame
+pygame.init()
+
+# Screen dimensions
+screen_width = 800
+screen_height = 600
+screen = pygame.display.set_mode((screen_width, screen_height))
+
+# Colors
+black = (0, 0, 0)
+white = (255, 255, 255)
+red = (255, 0, 0)
+
+# Car settings
+car_width = 50
+car_height = 60
+
+# Load car image
+car_image = pygame.image.load('car.png')
+car_image = pygame.transform.scale(car_image, (car_width, car_height))
+
+# Load track background
+background = pygame.image.load('track.png')
+background = pygame.transform.scale(background, (screen_width, screen_height))
+
+# Load obstacle image
+obstacle_image = pygame.image.load('obstacle.png')
+obstacle_image = pygame.transform.scale(obstacle_image, (car_width, car_height))
+
+# Set up fonts
+font = pygame.font.SysFont(None, 55)
+small_font = pygame.font.SysFont(None, 35)
+
+
+def draw_car(x, y):
+    screen.blit(car_image, (x, y))
+
+
+def draw_obstacle(x, y):
+    screen.blit(obstacle_image, (x, y))
+
+
+def display_message(text):
+    text_surface = font.render(text, True, red)
+    text_rect = text_surface.get_rect(center=(screen_width / 2, screen_height / 2))
+    screen.blit(text_surface, text_rect)
+    pygame.display.update()
+
+
+def crash():
+    display_message('You Crashed!')
+
+
+def show_score(score):
+    score_text = small_font.render(f"Score: {score}", True, red)
+    screen.blit(score_text, (10, 10))
+
+
+# MediaPipe hands setup
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+mp_draw = mp.solutions.drawing_utils
+
+
+def game_loop():
+    cap = cv2.VideoCapture(0)
+
+    x = screen_width * 0.45
+    y = screen_height * 0.8
+    x_change = 0
+
+    obstacle_speed = 7
+    num_obstacles = 3
+    obstacles = []
+
+    for _ in range(num_obstacles):
+        obstacle_start_x = random.randrange(0, screen_width - car_width)
+        obstacle_start_y = random.randrange(-600, -50)
+        obstacles.append([obstacle_start_x, obstacle_start_y])
+
+    score = 0
+    clock = pygame.time.Clock()
+    crashed = False
+
+    while not crashed:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                crashed = True
+
+        # Read frame from camera
+        ret, frame = cap.read()
+        if not ret:
+            print("Failed to grab frame")
+            break
+
+        frame = cv2.flip(frame, 1)
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = hands.process(frame_rgb)
+
+        if results.multi_hand_landmarks:
+            for hand_landmarks in results.multi_hand_landmarks:
+                x_thumb_tip = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP].x * screen_width
+                x_index_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP].x * screen_width
+
+                if x_index_tip < screen_width/1.5:
+                    x_change = -8
+                elif x_index_tip > 2 * screen_width/8:
+                    x_change = 8
+                else:
+                    x_change = 0
+
+                mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+        x += x_change
+        screen.fill(white)
+        screen.blit(background, (0, 0))
+
+        for obstacle in obstacles:
+            draw_obstacle(obstacle[0], obstacle[1])
+            obstacle[1] += obstacle_speed
+            if obstacle[1] > screen_height:
+                obstacle[1] = random.randrange(-600, -50)
+                obstacle[0] = random.randrange(0, screen_width - car_width)
+                score += 1
+
+            if y < obstacle[1] + car_height:
+                if x > obstacle[0] and x < obstacle[0] + car_width or x + car_width > obstacle[0] and x + car_width < \
+                        obstacle[0] + car_width:
+                    crash()
+                    crashed = True
+
+        draw_car(x, y)
+
+        if x > screen_width - car_width or x < 0:
+            crash()
+            crashed = True
+
+        show_score(score)
+        pygame.display.update()
+        clock.tick(60)
+
+        # Show camera feed
+        cv2.imshow("Hand Tracking", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+    pygame.quit()
+    quit()
+
+
+game_loop()
